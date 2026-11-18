@@ -57,6 +57,15 @@ python experiments/stage1_data.py                    # sample, splits, class tab
 python experiments/stage1_data.py --synthetic        # local check without data
 ```
 
+## Client partitioning (Stage 3)
+
+`src/data/partition.py` — zone-based Dirichlet split of the client pool into
+20 clients (zones A:7, B:7, C:6). One home-share `s` (found by bisection) sends
+part of every attack class to its home zone so zones are ~75 % dominant on
+average; the rest is spread over the other zones, so every class exists in the
+federation. Inside a zone each class is split by Dirichlet(α). Each client gets
+a random 30–50 % Benign share. `python experiments/stage3_partition.py [--alpha 0.1]`.
+
 ## Running on Google Colab
 
 1. Put the data on Drive: `MyDrive/CICIoT2023/Merged01.csv … Merged63.csv`
@@ -83,3 +92,4 @@ python -m pytest
 | 0 | 2026-11-18 | Repo skeleton (`src/*` packages, `experiments/`, `tests/`), `configs/base.yaml` + `ciciot2023.yaml` + `nbaiot.yaml` with README hyperparameters, `.gitignore`, pinned `requirements.txt`, utils (config deep-merge loader, seeding, logging/JSON/CSV I/O, resumable-run check), Colab notebook (mount Drive, clone, install, pytest, config check) | 23 passed (local, Python 3.11, torch 2.15.0 CPU) | Several values are not fixed by the design README and use marked defaults (attack strengths, firmware/freshness, unauthorized-client count, client val split, trimmed-mean β). |
 | 1 | 2026-11-18 | CICIoT2023 pipeline: label inspection + ordered keyword mapping (raises on unmapped labels), chunked class-capped sampling (bottom-k, uniform over all files), dedup + inf handling, `.npz` Drive cache, stratified test/root/pool splits, train-only median imputation + standard scaling, shortcut-feature drop option, synthetic data generator, `experiments/stage1_data.py`, notebook cells | 42 passed (19 new); synthetic run prints class tables; ~6 s per 420k rows locally | Full 63-file scan estimated 20–30 min on Colab (once, then cached). Not yet run on real data. Duplicates are removed within the kept sample (a dropped row cannot duplicate a kept one). |
 | 2 | — | **Skipped**: N-BaIoT dropped by project decision (`nbaiot.yaml` removed, `nbaiot` no longer a valid dataset). | — | Deviation from Architecture README 5.3 / 7.3. |
+| 3 | 2026-11-18 | Zone-based Dirichlet partitioning (`src/data/partition.py`), per-client / per-zone class tables, `experiments/stage3_partition.py`; Benign cap raised to 200k (`class_cap_overrides`) | 51 passed (9 new); 20 clients, none empty, all have 30–50 % Benign, zone dominance ≈ 0.70–0.80 (mean 0.75) on synthetic | With 50k Benign the 30–50 % rule is impossible (≈290k attack rows), hence the Benign cap; if Benign is still short, attack rows are sub-sampled with a warning. Stage-1 cache must be rebuilt (new cache name). |

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -71,8 +71,11 @@ def load_class_capped(
     float_dtype: str = "float32",
     n_expected_features: Optional[int] = None,
     verbose: bool = True,
+    class_cap_overrides: Optional[Mapping[str, int]] = None,
 ) -> SampledData:
     """Scan ``files`` chunk by chunk and keep a uniform sample of <= class_cap rows per class.
+
+    ``class_cap_overrides`` gives a different cap for some classes (e.g. Benign).
 
     Raises:
         ValueError: if files have different columns, the feature count is not
@@ -89,6 +92,7 @@ def load_class_capped(
                          f"{feature_names}")
 
     class_index = {c: i for i, c in enumerate(class_names)}
+    caps = {c: int((class_cap_overrides or {}).get(c, class_cap)) for c in class_names}
     rng = np.random.default_rng(seed)
     kept = {c: None for c in class_names}          # class -> DataFrame (features + key)
     raw_counts: dict = {}
@@ -121,8 +125,8 @@ def load_class_capped(
                 merged = part if kept[cls] is None else pd.concat([kept[cls], part], ignore_index=True)
                 if drop_duplicates:
                     merged = merged.drop_duplicates(subset=feature_names)
-                if len(merged) > class_cap:
-                    merged = merged.nsmallest(class_cap, KEY_COL)
+                if len(merged) > caps[cls]:
+                    merged = merged.nsmallest(caps[cls], KEY_COL)
                 kept[cls] = merged
         if verbose:
             sizes = {c: (0 if kept[c] is None else len(kept[c])) for c in class_names}
@@ -155,7 +159,8 @@ def load_class_capped(
 def cache_path(cfg: dict, n_files: int) -> Path:
     """Cache file name encodes everything that changes the sample."""
     d = cfg["data"]
-    name = (f"{cfg['dataset']}_files{n_files}_cap{d['class_cap']}_seed{cfg['seed']}"
+    over = "".join(f"_{k}{v}" for k, v in sorted((d.get("class_cap_overrides") or {}).items()))
+    name = (f"{cfg['dataset']}_files{n_files}_cap{d['class_cap']}{over}_seed{cfg['seed']}"
             f"_dedup{int(d['drop_duplicates'])}.npz")
     return Path(cfg["paths"]["cache_dir"]) / name
 
@@ -207,6 +212,7 @@ def load_or_build_sample(cfg: dict, files: Optional[Sequence[Path]] = None,
         class_names=d["classes"], class_cap=d["class_cap"], chunk_size=d["chunk_size"],
         seed=cfg["seed"], drop_duplicates=d["drop_duplicates"], float_dtype=d["float_dtype"],
         n_expected_features=d["n_expected_features"], verbose=verbose,
+        class_cap_overrides=d.get("class_cap_overrides"),
     )
     if use_cache:
         save_sample(sample, path)

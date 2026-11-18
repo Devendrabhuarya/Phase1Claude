@@ -200,3 +200,9 @@ def test_build_bundle(cfg, files, drop, capsys):
     assert table.sum().sum() == len(s.y)
     assert (table["test"] > 0).all()
     assert "Benign" in capsys.readouterr().out
+
+
+def test_class_cap_override(cfg, files):
+    s = _load(cfg, files, class_cap_overrides={"Benign": 400})
+    counts = s.class_counts()
+    assert counts["Benign"] > 250 and counts["DDoS"] == 250

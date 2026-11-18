@@ -9,6 +9,9 @@ data:
   label_column: Label
   n_expected_features: 39
   class_cap: 50000               # max rows kept per class (rare classes keep all rows)
+  # [NOT IN README] Benign needs a larger cap: every client must hold 30-50 % Benign
+  # (5.2), i.e. ~0.67x the ~290k attack rows. With 50k Benign this is impossible.
+  class_cap_overrides: {Benign: 200000}
   classes: [Benign, DDoS, DoS, Recon, Spoofing, Mirai, Web, BruteForce]
   # Keyword mapping on upper-cased labels with '-', '_' and spaces removed.
   # Checked IN THIS ORDER (DDOS before DOS). Unmapped labels raise an error.
