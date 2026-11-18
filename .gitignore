@@ -1,9 +1,10 @@
 # Data, results and model files — never commit
-data/
-results/
-checkpoints/
+/data/
+/results/
+/checkpoints/
 *.csv
 *.pt
+*.npz
 *.pth
 *.ckpt
 

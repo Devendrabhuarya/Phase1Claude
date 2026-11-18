@@ -19,7 +19,9 @@ import yaml
 #: Repository root (two levels above this file: src/utils/config.py).
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = REPO_ROOT / "configs"
-SUPPORTED_DATASETS = ("ciciot2023", "nbaiot")
+#: Only CICIoT2023 is used (N-BaIoT was dropped by project decision).
+#: Add a ``configs/<name>.yaml`` and a name here to support another dataset.
+SUPPORTED_DATASETS = ("ciciot2023",)
 
 
 def deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict:
@@ -51,7 +53,7 @@ def load_config(
     """Build the full config for ``dataset``: base + dataset yaml + overrides.
 
     Args:
-        dataset: ``"ciciot2023"`` or ``"nbaiot"``.
+        dataset: dataset name, currently only ``"ciciot2023"``.
         overrides: optional nested dict applied last (highest priority).
         config_dir: folder holding ``base.yaml`` and the dataset yaml files.
 

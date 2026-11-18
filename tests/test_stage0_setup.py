@@ -28,8 +28,8 @@ def test_deep_merge_nested_and_does_not_mutate():
     assert base["b"]["y"] == 2  # input unchanged
 
 
-@pytest.mark.parametrize("dataset", ["ciciot2023", "nbaiot"])
-def test_load_config_both_datasets(dataset):
+@pytest.mark.parametrize("dataset", ["ciciot2023"])
+def test_load_config(dataset):
     cfg = load_config(dataset)
     assert cfg["dataset"] == dataset
     assert cfg["paths"]["data_dir"]  # dataset-specific path merged in
@@ -69,10 +69,9 @@ def test_label_keyword_order_ddos_before_dos():
     assert kws.index("DDOS") < kws.index("DOS")
 
 
-def test_nbaiot_has_11_classes():
-    c = load_config("nbaiot")
-    assert len(c["data"]["classes"]) == 11
-    assert c["partition"]["n_clients"] == 20
+def test_nbaiot_not_supported():
+    with pytest.raises(ValueError):
+        load_config("nbaiot")
 
 
 def test_overrides_and_save_roundtrip(tmp_path):

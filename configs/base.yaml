@@ -6,13 +6,14 @@
 # =====================================================================
 
 seed: 42                         # base seed (Python, NumPy, PyTorch, partitioning)
-dataset: ciciot2023              # ciciot2023 | nbaiot (overridden by dataset yaml)
+dataset: ciciot2023              # only CICIoT2023 is used (N-BaIoT dropped, see README stage log)
 
 paths:
   # Colab defaults. Override per machine (e.g. local tests use tmp dirs).
   drive_root: /content/drive/MyDrive
   results_dir: /content/drive/MyDrive/fl-ids-results
   checkpoints_dir: /content/drive/MyDrive/fl-ids-results/checkpoints
+  cache_dir: /content/drive/MyDrive/fl-ids-results/cache   # sampled dataset cache (.npz)
   local_sample_csv: data/sample/Merged01.csv   # used only if it exists
 
 # ---------------------------------------------------------------- 5.1
@@ -22,6 +23,8 @@ data:
   client_val_fraction: 0.1       # [NOT IN README] local train/val split per client
   chunk_size: 100000             # rows per CSV chunk (memory-safe reading)
   drop_duplicates: true
+  float_dtype: float32           # halves memory vs float64
+  nan_fill: train_median         # inf -> NaN -> median of the training (client-pool) data
   scaling: standard              # StandardScaler fitted on training data only
   shortcut_features: [Time_To_Live, IAT]   # 5.1 shortcut-feature check
   drop_shortcut_features: false  # set true if the Stage-5 check says so
@@ -138,4 +141,4 @@ experiment:
   alphas: [0.5, 0.1]
   baselines: [fedavg, median, trimmed_mean, krum, multikrum, fltrust]
   ablation_variants: [V1, V2, V3, V4, V5]
-  priority: [main_alpha05_spread, concentrated, ablation, alpha01, nbaiot]
+  priority: [main_alpha05_spread, concentrated, ablation, alpha01]   # N-BaIoT step dropped
