@@ -25,6 +25,7 @@ import torch
 from src.data.partition import Partition
 from src.data.preprocess import DatasetBundle
 from src.fl.client import client_update, steps_per_round
+from src.ledger.records import round_record
 from src.metrics.detection import attack_success_rate, detection_metrics, predict
 from src.models.mlp import build_model, final_layer_slice, get_weights, set_weights
 from src.utils.seed import make_rng
@@ -85,6 +86,7 @@ def run_federated(
     round_hook: Optional[Callable[[int, dict], None]] = None,
     verbose: bool = True,
     admission=None,
+    ledger=None,
 ) -> dict:
     """Run the FL simulation and return ``{"history": [...], "final": {...}, "weights": tensor}``.
 
@@ -99,6 +101,9 @@ def run_federated(
         admission: optional ABAC admission controller (Stage 8) with
             ``admit(round, client_ids)`` and ``after_round(round, info)``.
             Only admitted clients train; intruders that get through send noise.
+        ledger: optional audit ledger (Stage 9) with ``append(record)``; one
+            block per round with ABAC decisions, update hashes + Merkle root,
+            cohorts, screening, reputation and the new global-model hash.
     """
     seed = cfg["seed"]
     torch.manual_seed(seed)
@@ -171,6 +176,11 @@ def run_federated(
         t_server = time.perf_counter() - t1 + t_abac
 
         row = {"round": rnd, "time_clients_s": t_clients, "time_server_s": t_server}
+        if ledger is not None:                    # recording only; not part of server time
+            t2 = time.perf_counter()
+            block = ledger.append(round_record(rnd, ids, updates, info, global_w, adm, admission,
+                                               getattr(ledger, "algo", "sha256")))
+            row.update(ledger_append_s=time.perf_counter() - t2, block_hash=block["block_hash"])
         if adm is not None:
             row.update(abac_row(adm, newly_quarantined, admission))
         if "cohorts" in info:
@@ -189,7 +199,7 @@ def run_federated(
                   f"mcc={row['mcc']:.4f}  ({t_clients:.1f}s clients, {t_server:.2f}s server)")
 
     final = {k: v for k, v in history[-1].items() if k != "info"}
-    return {"history": history, "final": final, "weights": global_w}
+    return {"history": history, "final": final, "weights": global_w, "ledger": ledger}
 
 
 def abac_row(adm, newly_quarantined, admission) -> dict:
