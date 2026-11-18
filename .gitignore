@@ -1,0 +1,29 @@
+# Data, results and model files — never commit
+data/
+results/
+checkpoints/
+*.csv
+*.pt
+*.pth
+*.ckpt
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Notebooks / editors / OS
+.ipynb_checkpoints/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.key
+*token*
+.claude/settings.local.json

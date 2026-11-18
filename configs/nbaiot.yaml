@@ -1,0 +1,21 @@
+# N-BaIoT settings (Architecture_README.md 5.3). Merged on top of base.yaml.
+dataset: nbaiot
+
+paths:
+  data_dir: /content/drive/MyDrive/N-BaIoT
+  # Layout is auto-detected: per-device folders (benign_traffic.csv,
+  # gafgyt_attacks/, mirai_attacks/) or flat files (1.benign.csv, 1.mirai.ack.csv ...).
+
+data:
+  n_expected_features: 115
+  class_cap: 50000               # [NOT IN README] same cap as CICIoT2023
+  classes: [Benign,
+            Gafgyt_combo, Gafgyt_junk, Gafgyt_scan, Gafgyt_tcp, Gafgyt_udp,
+            Mirai_ack, Mirai_scan, Mirai_syn, Mirai_udp, Mirai_udpplain]
+  shortcut_features: []          # TTL/IAT check applies to CICIoT2023 only
+
+partition:
+  scheme: device
+  n_clients: 20
+  clients_per_device: 2
+  extra_clients_largest_devices: 2   # +1 client for each of the 2 largest devices

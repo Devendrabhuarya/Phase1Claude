@@ -1,0 +1,141 @@
+# =====================================================================
+# Base configuration — shared by every dataset and experiment.
+# Values come from Architecture_README.md (section noted in each block).
+# Values marked "[NOT IN README]" are defaults chosen by the implementer
+# because the README does not fix them; change them here if needed.
+# =====================================================================
+
+seed: 42                         # base seed (Python, NumPy, PyTorch, partitioning)
+dataset: ciciot2023              # ciciot2023 | nbaiot (overridden by dataset yaml)
+
+paths:
+  # Colab defaults. Override per machine (e.g. local tests use tmp dirs).
+  drive_root: /content/drive/MyDrive
+  results_dir: /content/drive/MyDrive/fl-ids-results
+  checkpoints_dir: /content/drive/MyDrive/fl-ids-results/checkpoints
+  local_sample_csv: data/sample/Merged01.csv   # used only if it exists
+
+# ---------------------------------------------------------------- 5.1
+data:
+  test_fraction: 0.2             # global stratified test set
+  root_size: 500                 # server-only root dataset (FLTrust)
+  client_val_fraction: 0.1       # [NOT IN README] local train/val split per client
+  chunk_size: 100000             # rows per CSV chunk (memory-safe reading)
+  drop_duplicates: true
+  scaling: standard              # StandardScaler fitted on training data only
+  shortcut_features: [Time_To_Live, IAT]   # 5.1 shortcut-feature check
+  drop_shortcut_features: false  # set true if the Stage-5 check says so
+
+# ---------------------------------------------------------------- 5.2
+partition:
+  n_clients: 20
+  dirichlet_alpha: 0.5           # main; hard case = 0.1
+  dirichlet_alpha_hard: 0.1
+  benign_fraction_min: 0.3       # every client gets 30–50 % Benign
+  benign_fraction_max: 0.5
+  zone_dominant_fraction: 0.75   # ~75 % of a zone's attack data from its dominant classes
+  min_samples_per_client: 50     # [NOT IN README] guard against empty clients
+
+# ---------------------------------------------------------------- 6.1
+model:
+  hidden_sizes: [128, 64]        # input/output sizes are read from the data
+  activation: relu
+  dropout: 0.2
+
+training:
+  loss: cross_entropy
+  class_weighted: true
+  optimizer: sgd
+  lr: 0.01
+  momentum: 0.9
+  local_epochs: 2
+  batch_size: 256
+  device: cpu
+
+fl:
+  rounds: 40
+  participation: all_admitted    # all admitted clients every round
+
+# ---------------------------------------------------------------- 6.2
+abac:
+  enabled: true
+  min_firmware_version: "2.0.0"  # [NOT IN README] simulated registry value
+  freshness_window: 3            # [NOT IN README] rounds since last_seen
+  reputation_threshold: 0.3      # tau
+  n_unauthorized_clients: 4      # [NOT IN README] injected per round in experiments
+  unauthorized_types: [unregistered, stale_firmware, expired]
+
+# ---------------------------------------------------------------- 6.3
+clipping:
+  enabled: true
+  method: median_norm
+
+# ---------------------------------------------------------------- 6.4
+cohorts:
+  enabled: true
+  feature: final_layer           # flattened update of the final layer
+  distance: cosine
+  linkage: average
+  k_candidates: [2, 3]           # chosen by silhouette score
+  min_cohort_size: 6
+  recluster_every_round: true
+
+# ---------------------------------------------------------------- 6.5
+multikrum:
+  # f_c = floor((n_c - 3) / 2); neighbours = n_c - f_c - 2; keep m_c = n_c - f_c
+  f_formula: floor_n_minus_3_over_2
+
+fltrust:
+  root_epochs: 2                 # same local training settings as clients
+  root_batch_size: 256
+
+# ---------------------------------------------------------------- 6.6
+inter_cohort:
+  root_alignment_check: true     # drop cohort if cos(delta_c, g0) <= 0
+  weight_cap: 0.5                # w_max
+
+# ---------------------------------------------------------------- 6.7
+reputation:
+  enabled: true
+  beta: 0.8
+  initial: 0.5
+  threshold: 0.3                 # tau (same as abac.reputation_threshold)
+  quarantine_rounds: 5
+  probation_value: 0.3           # reset to tau after quarantine
+
+# ---------------------------------------------------------------- 6.8
+ledger:
+  enabled: true
+  hash: sha256
+
+# ---------------------------------------------------------------- 3
+attacks:
+  type: none                     # none | label_flip | sign_flip | gaussian | scaling | alie | minmax
+  malicious_fraction: 0.0        # 0, 0.1, 0.2, 0.3, 0.4
+  placement: spread              # spread | concentrated
+  label_flip_target: Benign      # attack labels flipped to Benign
+  sign_flip_scale: 1.0           # [NOT IN README] "optionally scaled"
+  gaussian_std: 1.0              # [NOT IN README]
+  scaling_factor: 10.0           # [NOT IN README]
+  alie_z: null                   # [NOT IN README] null = computed from n and f (Baruch et al.)
+  minmax_gamma_init: 10.0        # [NOT IN README] search start for Min-Max
+  minmax_tol: 1.0e-5             # [NOT IN README]
+
+# ---------------------------------------------------------------- 7
+aggregator:
+  name: fedavg                   # fedavg | median | trimmed_mean | krum | multikrum | fltrust | proposed
+  trimmed_mean_beta: 0.1         # [NOT IN README] fraction trimmed from each side
+  krum_f: null                   # null = derived from malicious_fraction
+
+ablation:
+  variant: V5                    # V1..V5 (7.2); only used when aggregator == proposed
+
+experiment:
+  n_seeds: 3
+  attacks: [label_flip, sign_flip, gaussian, scaling, alie, minmax]
+  malicious_fractions: [0.0, 0.1, 0.2, 0.3, 0.4]
+  placements: [spread, concentrated]
+  alphas: [0.5, 0.1]
+  baselines: [fedavg, median, trimmed_mean, krum, multikrum, fltrust]
+  ablation_variants: [V1, V2, V3, V4, V5]
+  priority: [main_alpha05_spread, concentrated, ablation, alpha01, nbaiot]

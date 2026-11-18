@@ -1,0 +1,37 @@
+# CICIoT2023 settings (Architecture_README.md 5.1, 5.2). Merged on top of base.yaml.
+dataset: ciciot2023
+
+paths:
+  data_dir: /content/drive/MyDrive/CICIoT2023
+  file_pattern: "Merged*.csv"    # Merged01.csv ... Merged63.csv
+
+data:
+  label_column: Label
+  n_expected_features: 39
+  class_cap: 50000               # max rows kept per class (rare classes keep all rows)
+  classes: [Benign, DDoS, DoS, Recon, Spoofing, Mirai, Web, BruteForce]
+  # Keyword mapping on upper-cased labels with '-', '_' and spaces removed.
+  # Checked IN THIS ORDER (DDOS before DOS). Unmapped labels raise an error.
+  label_keywords:
+    - [BENIGN, Benign]
+    - [DDOS, DDoS]
+    - [DOS, DoS]
+    - [MIRAI, Mirai]
+    - [RECON, Recon]
+    - [VULNERABILITYSCAN, Recon]
+    - [SPOOFING, Spoofing]
+    - [MITM, Spoofing]
+    - [BRUTEFORCE, BruteForce]
+    - [SQLINJECTION, Web]
+    - [XSS, Web]
+    - [COMMANDINJECTION, Web]
+    - [BACKDOOR, Web]
+    - [UPLOADING, Web]
+    - [BROWSERHIJACKING, Web]
+
+partition:
+  scheme: zone_dirichlet
+  zones:
+    A: {n_clients: 7, dominant: [DDoS, DoS]}
+    B: {n_clients: 7, dominant: [Recon, Spoofing, BruteForce]}
+    C: {n_clients: 6, dominant: [Mirai, Web]}   # "+ some DDoS" comes from the 25 % remainder
