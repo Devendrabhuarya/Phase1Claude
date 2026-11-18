@@ -28,3 +28,4 @@ def available() -> list:
 
 # Imported last: these modules use ``register`` defined above.
 from src.aggregators import robust  # noqa: E402,F401
+from src.aggregators import proposed  # noqa: E402,F401

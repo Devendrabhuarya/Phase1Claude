@@ -84,6 +84,7 @@ def run_federated(
     rounds: Optional[int] = None,
     round_hook: Optional[Callable[[int, dict], None]] = None,
     verbose: bool = True,
+    admission=None,
 ) -> dict:
     """Run the FL simulation and return ``{"history": [...], "final": {...}, "weights": tensor}``.
 
@@ -95,6 +96,9 @@ def run_federated(
             ``poison_data(cid, X, y)`` and ``poison_updates(updates, malicious_mask, rng)``.
         rounds: override ``cfg['fl']['rounds']``.
         round_hook: called as ``round_hook(round, row)`` after every round.
+        admission: optional ABAC admission controller (Stage 8) with
+            ``admit(round, client_ids)`` and ``after_round(round, info)``.
+            Only admitted clients train; intruders that get through send noise.
     """
     seed = cfg["seed"]
     torch.manual_seed(seed)
@@ -119,16 +123,29 @@ def run_federated(
 
     history = []
     for rnd in range(1, rounds + 1):
+        # --- ABAC admission (before training)
+        t_abac = time.perf_counter()
+        adm = admission.admit(rnd, client_ids) if admission is not None else None
+        active = adm.admitted if adm is not None else client_ids
+        t_abac = time.perf_counter() - t_abac
+
         t0 = time.perf_counter()
-        updates = torch.stack([
-            client_update(model, global_w, client_X[c], client_y[c], t_cfg, data.n_classes,
-                          _client_seed(seed, rnd, c))
-            for c in client_ids])
+        updates = [client_update(model, global_w, client_X[c], client_y[c], t_cfg, data.n_classes,
+                                 _client_seed(seed, rnd, c)) for c in active]
         t_clients = time.perf_counter() - t0
 
-        if attack is not None and malicious:
-            mask = torch.tensor([c in malicious for c in client_ids])
-            updates = attack.poison_updates(updates, mask, make_rng(seed, 6, rnd))
+        ids = list(active)
+        if updates and attack is not None and malicious:
+            updates = torch.stack(updates)
+            mask = torch.tensor([c in malicious for c in ids])
+            if mask.any() and not mask.all():     # adaptive attacks need some benign updates
+                updates = attack.poison_updates(updates, mask, make_rng(seed, 6, rnd))
+            updates = list(updates)
+        if adm is not None:                       # intruders that slipped through ABAC
+            for k, iid in enumerate(adm.intruders_admitted):
+                noise = admission.intruder_update(rnd, k, len(global_w))
+                updates.append(torch.as_tensor(noise, dtype=global_w.dtype))
+                ids.append(iid)
 
         root_cache: dict = {}
 
@@ -140,14 +157,24 @@ def run_federated(
                     batch_size=f_cfg["root_batch_size"])
             return root_cache["g0"]
 
-        context = {"round": rnd, "client_ids": client_ids, "n_samples": n_samples,
+        sizes = [float(n_samples[c]) if isinstance(c, int) else float(np.median(n_samples))
+                 for c in ids]
+        context = {"round": rnd, "client_ids": ids, "n_samples": torch.tensor(sizes),
                    "root_update": root_update, "final_layer": final_layer_slice(model)}
         t1 = time.perf_counter()
-        new_update, info = aggregator.aggregate(updates, global_w, context)
+        if updates:
+            new_update, info = aggregator.aggregate(torch.stack(updates), global_w, context)
+        else:                                     # nobody admitted: keep the model
+            new_update, info = torch.zeros_like(global_w), {"selected": []}
         global_w = global_w + new_update
-        t_server = time.perf_counter() - t1
+        newly_quarantined = admission.after_round(rnd, info) if admission is not None else []
+        t_server = time.perf_counter() - t1 + t_abac
 
         row = {"round": rnd, "time_clients_s": t_clients, "time_server_s": t_server}
+        if adm is not None:
+            row.update(abac_row(adm, newly_quarantined, admission))
+        if "cohorts" in info:
+            row["cohort_ari"] = cohort_ari(info["cohorts"], data.client_groups)
         if rnd % cfg["fl"]["eval_every"] == 0 or rnd == rounds:
             row.update(evaluate(model, global_w, data, cfg))
         selected = info.get("selected")
@@ -163,6 +190,30 @@ def run_federated(
 
     final = {k: v for k, v in history[-1].items() if k != "info"}
     return {"history": history, "final": final, "weights": global_w}
+
+
+def abac_row(adm, newly_quarantined, admission) -> dict:
+    """Per-round ABAC / reputation statistics."""
+    return {
+        "n_admitted": len(adm.admitted),
+        "denied_clients": sorted(set(range(admission.n_clients)) - set(adm.admitted)),
+        "intruders": adm.n_intruders,
+        "intruders_blocked": adm.intruders_blocked,
+        "newly_quarantined": [int(c[-2:]) for c in newly_quarantined],
+        "released": [int(c[-2:]) for c in adm.released],
+        "abac_decisions": adm.decisions,
+        "reputation": admission.reputations(),
+    }
+
+
+def cohort_ari(cohorts: dict, client_groups) -> float:
+    """Adjusted Rand Index between discovered cohorts and true zones (FL clients only)."""
+    from sklearn.metrics import adjusted_rand_score
+    pairs = [(client_groups[c], k) for c, k in cohorts.items() if isinstance(c, int)]
+    if len(pairs) < 2:
+        return float("nan")
+    true, found = zip(*pairs)
+    return float(adjusted_rand_score(true, found))
 
 
 def evaluate(model, weights: torch.Tensor, data: FLData, cfg: dict) -> dict:

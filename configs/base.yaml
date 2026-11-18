@@ -74,6 +74,12 @@ abac:
   reputation_threshold: 0.3      # tau
   n_unauthorized_clients: 4      # [NOT IN README] injected per round in experiments
   unauthorized_types: [unregistered, stale_firmware, expired]
+  inject_unauthorized: true      # inject unauthorized join attempts (proposed method only)
+  # --- simulated attribute registry [NOT IN README] ---
+  registered_firmware_versions: ["2.0.0", "2.1.0", "2.3.1"]   # legit clients (cycled)
+  stale_firmware_version: "1.4.0"
+  device_types: [camera, thermostat, gateway, smart_plug, door_lock]
+  unauthorized_update_std: 1.0   # noise update an intruder would send if admitted
 
 # ---------------------------------------------------------------- 6.3
 clipping:
