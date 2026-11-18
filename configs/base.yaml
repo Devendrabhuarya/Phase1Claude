@@ -123,12 +123,14 @@ attacks:
   type: none                     # none | label_flip | sign_flip | gaussian | scaling | alie | minmax
   malicious_fraction: 0.0        # 0, 0.1, 0.2, 0.3, 0.4
   placement: spread              # spread | concentrated
+  concentrated_zone: A           # [NOT IN README] zone filled first under "concentrated"
   label_flip_target: Benign      # attack labels flipped to Benign
   sign_flip_scale: 1.0           # [NOT IN README] "optionally scaled"
   gaussian_std: 1.0              # [NOT IN README]
   scaling_factor: 10.0           # [NOT IN README]
   alie_z: null                   # [NOT IN README] null = computed from n and f (Baruch et al.)
   minmax_gamma_init: 10.0        # [NOT IN README] search start for Min-Max
+  minmax_perturbation: std       # [NOT IN README] std | unit_vec | sign (Shejwalkar & Houmansadr 2021)
   minmax_tol: 1.0e-5             # [NOT IN README]
 
 # ---------------------------------------------------------------- 7
