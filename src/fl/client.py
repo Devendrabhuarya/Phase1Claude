@@ -29,8 +29,12 @@ def class_weights(y: np.ndarray, n_classes: int, max_weight: float) -> torch.Ten
 
 def train_local(model: nn.Module, X: np.ndarray, y: np.ndarray, training_cfg: dict,
                 n_classes: int, seed: int, epochs: int | None = None,
-                batch_size: int | None = None) -> None:
-    """Train ``model`` in place on (X, y) with the settings in ``training_cfg``."""
+                batch_size: int | None = None, steps: int | None = None) -> None:
+    """Train ``model`` in place on (X, y) with the settings in ``training_cfg``.
+
+    If ``steps`` is given, training runs for exactly that many SGD steps
+    (re-shuffling after each pass over the data) instead of ``epochs`` passes.
+    """
     t = training_cfg
     epochs = t["local_epochs"] if epochs is None else epochs
     batch_size = t["batch_size"] if batch_size is None else batch_size
@@ -44,13 +48,23 @@ def train_local(model: nn.Module, X: np.ndarray, y: np.ndarray, training_cfg: di
     yt = torch.as_tensor(y, dtype=torch.long)
     gen = torch.Generator().manual_seed(int(seed))
     model.train()
-    for _ in range(epochs):
+    done, passes = 0, 0
+    while (steps is None and passes < epochs) or (steps is not None and done < steps):
         order = torch.randperm(len(Xt), generator=gen)
         for start in range(0, len(Xt), batch_size):
+            if steps is not None and done >= steps:
+                break
             batch = order[start:start + batch_size]
             opt.zero_grad()
             loss_fn(model(Xt[batch]), yt[batch]).backward()
             opt.step()
+            done += 1
+        passes += 1
+
+
+def steps_per_round(n_samples: int, training_cfg: dict) -> int:
+    """SGD steps one client makes per round: local_epochs × ceil(n / batch_size)."""
+    return training_cfg["local_epochs"] * -(-n_samples // training_cfg["batch_size"])
 
 
 def client_update(model: nn.Module, global_weights: torch.Tensor, X: np.ndarray, y: np.ndarray,

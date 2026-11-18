@@ -24,7 +24,7 @@ import torch
 
 from src.data.partition import Partition
 from src.data.preprocess import DatasetBundle
-from src.fl.client import client_update
+from src.fl.client import client_update, steps_per_round
 from src.metrics.detection import attack_success_rate, detection_metrics, predict
 from src.models.mlp import build_model, final_layer_slice, get_weights, set_weights
 from src.utils.seed import make_rng
@@ -111,6 +111,11 @@ def run_federated(
         for cid in malicious:
             client_X[cid], client_y[cid] = attack.poison_data(cid, client_X[cid], client_y[cid])
     n_samples = torch.tensor([len(y) for y in client_y], dtype=torch.float32)
+    f_cfg = cfg["fltrust"]
+    if f_cfg["root_steps"] == "match_clients":
+        root_steps = int(round(np.mean([steps_per_round(len(y), t_cfg) for y in client_y])))
+    else:
+        root_steps = int(f_cfg["root_steps"])
 
     history = []
     for rnd in range(1, rounds + 1):
@@ -129,11 +134,10 @@ def run_federated(
 
         def root_update(_w=global_w, _rnd=rnd) -> torch.Tensor:
             if "g0" not in root_cache:
-                f = cfg["fltrust"]
                 root_cache["g0"] = client_update(
                     model, _w, data.X_root, data.y_root, t_cfg, data.n_classes,
-                    _client_seed(seed, _rnd, 10_000), epochs=f["root_epochs"],
-                    batch_size=f["root_batch_size"])
+                    _client_seed(seed, _rnd, 10_000), steps=root_steps,
+                    batch_size=f_cfg["root_batch_size"])
             return root_cache["g0"]
 
         context = {"round": rnd, "client_ids": client_ids, "n_samples": n_samples,

@@ -93,6 +93,15 @@ the malicious update within the max benign pairwise distance). The server calls
 `poison_data` once and `poison_updates` every round.
 `python experiments/stage6_attacks.py [--synthetic] --rounds 10 --fraction 0.2 --placement spread`.
 
+## Robust baselines (Stage 7)
+
+`src/aggregators/robust.py`: coordinate-wise **Median**, **Trimmed Mean**
+(β per side), **Krum** / **Multi-Krum** (score = sum of squared distances to the
+n − f − 2 nearest neighbours, f = ⌊(n − 3)/2⌋, Multi-Krum averages the n − f best),
+**FLTrust** (TSᵢ = ReLU(cos(Δᵢ, g₀)), Δᵢ scaled to ‖g₀‖, trust-weighted mean).
+The helpers `krum_scores`, `multikrum_select`, `fltrust_scores` are reused by the
+proposed method. `python experiments/stage7_baselines.py --attack sign_flip`.
+
 ## Running on Google Colab
 
 1. Put the data on Drive: `MyDrive/CICIoT2023/Merged01.csv … Merged63.csv`
@@ -123,3 +132,4 @@ python -m pytest
 | 4 | 2026-11-18 | MLP (sizes from data), client training (class-weighted CE capped at 10, SGD), sequential FL server with lazy root update + attack hooks, aggregator interface + FedAvg, metrics (accuracy, macro-F1, MCC, per-class recall, attack success rate, screening TPR/FPR), `experiments/stage4_fedavg.py` | 60 passed (9 new). Synthetic, 10 rounds: FedAvg acc 0.744 / F1 0.475 / MCC 0.679 vs majority acc 0.408 / F1 0.073 / MCC 0 | Synthetic data enlarged (≈50k rows) because tiny clients get too few SGD steps at lr 0.01. Rare synthetic classes (Web, BruteForce) are still not learned in 10 rounds; real-data behaviour to be checked on Colab. |
 | 5 | 2026-11-18 | Shortcut-feature check: centralized MLP 39 vs 37 features, comparison table (accuracy, macro-F1, MCC, per-class recall, difference), decision by macro-F1 drop, `experiments/stage5_shortcut.py` | 62 passed (2 new): no false alarm when signal is spread; a planted TTL/IAT-only signal gives F1 drop 0.65 → reduced set recommended | "Sharp drop" threshold (0.05 macro-F1) and 10 centralized epochs are my choices. Real-data result pending (Colab). |
 | 6 | 2026-11-18 | Attacks (label flip, sign flip, Gaussian, scaling, ALIE, Min-Max) with data/update hooks in the server, malicious placement (spread / concentrated with overflow), `attack_from_config`, `experiments/stage6_attacks.py`, notebook cells for Stages 3–6 | 79 passed (17 new). Synthetic FedAvg, 20 % spread, 10 rounds — acc: clean 0.744, label flip 0.688 (ASR 0.07→0.20), sign flip 0.645, Gaussian 0.551, scaling 0.157, ALIE 0.734, Min-Max 0.726 | Attack strengths (sign scale 1, noise std 1, scaling ×10), Min-Max perturbation (std) and concentrated zone (A) are my choices. Adaptive attacks use this round's benign-update statistics (omniscient). |
+| 7 | 2026-11-18 | *(branch `stage-7-baselines`)* Median, Trimmed Mean, Krum, Multi-Krum, FLTrust behind the common interface + registry; reusable `krum_scores` / `multikrum_select` / `fltrust_scores`; FLTrust root update now runs as many SGD steps as an average client (`fltrust.root_steps: match_clients`); `experiments/stage7_baselines.py` | 95 passed (16 new): each rule tested on hand-made updates with a known outlier; under scaling (20 %) all robust rules beat FedAvg by > 0.2 acc. Synthetic sign flip 20 %, 10 rounds — acc: FedAvg 0.645, Median 0.600, TrMean 0.650, Krum 0.524 (FPR 0.94), Multi-Krum 0.536 (TPR 0.75, FPR 0.31), FLTrust 0.604 (TPR 1.0, FPR 0) | Under non-IID data, global Krum/Multi-Krum reject many honest clients (high FPR) — the problem the cohort design targets. Root-step matching is a deviation (README only says "train on the root dataset"). |
