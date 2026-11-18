@@ -75,6 +75,14 @@ lazy root update g₀ for FLTrust, per-round test metrics, attack hooks),
 (new_update, info)` interface, FedAvg), `src/metrics/detection.py`.
 `python experiments/stage4_fedavg.py [--synthetic] [--rounds N]`.
 
+## Shortcut-feature check (Stage 5)
+
+`src/metrics/shortcut.py` trains the MLP centrally on the client pool with all 39
+features and without `Time_To_Live` and `IAT` (37), and compares test metrics.
+A macro-F1 drop ≥ `shortcut_check.sharp_drop` means the model relies on the
+shortcuts → set `data.drop_shortcut_features: true`.
+`python experiments/stage5_shortcut.py` (saves `shortcut_check.csv` to the results folder).
+
 ## Running on Google Colab
 
 1. Put the data on Drive: `MyDrive/CICIoT2023/Merged01.csv … Merged63.csv`
@@ -103,3 +111,4 @@ python -m pytest
 | 2 | — | **Skipped**: N-BaIoT dropped by project decision (`nbaiot.yaml` removed, `nbaiot` no longer a valid dataset). | — | Deviation from Architecture README 5.3 / 7.3. |
 | 3 | 2026-11-18 | Zone-based Dirichlet partitioning (`src/data/partition.py`), per-client / per-zone class tables, `experiments/stage3_partition.py`; Benign cap raised to 200k (`class_cap_overrides`) | 51 passed (9 new); 20 clients, none empty, all have 30–50 % Benign, zone dominance ≈ 0.70–0.80 (mean 0.75) on synthetic | With 50k Benign the 30–50 % rule is impossible (≈290k attack rows), hence the Benign cap; if Benign is still short, attack rows are sub-sampled with a warning. Stage-1 cache must be rebuilt (new cache name). |
 | 4 | 2026-11-18 | MLP (sizes from data), client training (class-weighted CE capped at 10, SGD), sequential FL server with lazy root update + attack hooks, aggregator interface + FedAvg, metrics (accuracy, macro-F1, MCC, per-class recall, attack success rate, screening TPR/FPR), `experiments/stage4_fedavg.py` | 60 passed (9 new). Synthetic, 10 rounds: FedAvg acc 0.744 / F1 0.475 / MCC 0.679 vs majority acc 0.408 / F1 0.073 / MCC 0 | Synthetic data enlarged (≈50k rows) because tiny clients get too few SGD steps at lr 0.01. Rare synthetic classes (Web, BruteForce) are still not learned in 10 rounds; real-data behaviour to be checked on Colab. |
+| 5 | 2026-11-18 | Shortcut-feature check: centralized MLP 39 vs 37 features, comparison table (accuracy, macro-F1, MCC, per-class recall, difference), decision by macro-F1 drop, `experiments/stage5_shortcut.py` | 62 passed (2 new): no false alarm when signal is spread; a planted TTL/IAT-only signal gives F1 drop 0.65 → reduced set recommended | "Sharp drop" threshold (0.05 macro-F1) and 10 centralized epochs are my choices. Real-data result pending (Colab). |

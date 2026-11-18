@@ -29,6 +29,10 @@ data:
   shortcut_features: [Time_To_Live, IAT]   # 5.1 shortcut-feature check
   drop_shortcut_features: false  # set true if the Stage-5 check says so
 
+shortcut_check:                  # 5.1 centralized 39- vs 37-feature comparison (Stage 5)
+  epochs: 10                     # [NOT IN README] centralized training epochs
+  sharp_drop: 0.05               # [NOT IN README] macro-F1 drop counted as "sharp"
+
 # ---------------------------------------------------------------- 5.2
 partition:
   n_clients: 20
