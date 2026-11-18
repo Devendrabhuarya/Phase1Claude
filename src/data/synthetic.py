@@ -119,5 +119,5 @@ def make_synthetic_sample(class_counts: Mapping[str, int], seed: int = 0,
 
 
 #: default class sizes for synthetic FL runs (ratio similar to the real capped sample)
-SYNTHETIC_FL_COUNTS = {"Benign": 4000, "DDoS": 1000, "DoS": 1000, "Recon": 1000,
-                       "Spoofing": 1000, "Mirai": 1000, "Web": 500, "BruteForce": 300}
+SYNTHETIC_FL_COUNTS = {"Benign": 20000, "DDoS": 5000, "DoS": 5000, "Recon": 5000,
+                       "Spoofing": 5000, "Mirai": 5000, "Web": 2500, "BruteForce": 1500}

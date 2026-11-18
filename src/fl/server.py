@@ -1,0 +1,179 @@
+"""Sequential federated-learning simulation (plain PyTorch, no Flower/Ray).
+
+One round:
+
+1. every participating client trains locally from the current global
+   weights and returns its update Δᵢ (malicious clients may poison their
+   data before training or their update after training — Stage 6);
+2. the aggregator turns the stacked updates into one update;
+3. the server adds it to the global weights and evaluates on the test set.
+
+The server also offers the **root update** g₀ (training the current global
+model on the server's small clean root set), computed only if an aggregator
+asks for it (FLTrust, proposed method).
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass
+from typing import Callable, Optional, Sequence
+
+import numpy as np
+import torch
+
+from src.data.partition import Partition
+from src.data.preprocess import DatasetBundle
+from src.fl.client import client_update
+from src.metrics.detection import attack_success_rate, detection_metrics, predict
+from src.models.mlp import build_model, final_layer_slice, get_weights, set_weights
+from src.utils.seed import make_rng
+
+
+@dataclass
+class FLData:
+    """Per-client training data plus the server-side test and root sets."""
+
+    client_X: list
+    client_y: list
+    client_groups: list           # zone of each client (evaluation only)
+    X_test: np.ndarray
+    y_test: np.ndarray
+    X_root: np.ndarray
+    y_root: np.ndarray
+    class_names: list
+
+    @property
+    def n_clients(self) -> int:
+        return len(self.client_X)
+
+    @property
+    def n_features(self) -> int:
+        return self.X_test.shape[1]
+
+    @property
+    def n_classes(self) -> int:
+        return len(self.class_names)
+
+    @property
+    def benign_id(self) -> int:
+        return self.class_names.index("Benign")
+
+
+def make_fl_data(bundle: DatasetBundle, partition: Partition) -> FLData:
+    """Cut the client pool into per-client local training sets."""
+    return FLData(
+        client_X=[bundle.X_pool[i] for i in partition.train_indices],
+        client_y=[bundle.y_pool[i] for i in partition.train_indices],
+        client_groups=list(partition.client_groups),
+        X_test=bundle.X_test, y_test=bundle.y_test,
+        X_root=bundle.X_root, y_root=bundle.y_root,
+        class_names=list(bundle.class_names),
+    )
+
+
+def _client_seed(seed: int, rnd: int, cid: int) -> int:
+    return int(make_rng(seed, 4, rnd, cid).integers(2**31 - 1))
+
+
+def run_federated(
+    data: FLData,
+    cfg: dict,
+    aggregator,
+    attack=None,
+    rounds: Optional[int] = None,
+    round_hook: Optional[Callable[[int, dict], None]] = None,
+    verbose: bool = True,
+) -> dict:
+    """Run the FL simulation and return ``{"history": [...], "final": {...}, "weights": tensor}``.
+
+    Args:
+        data: per-client data and server test/root sets.
+        cfg: full config.
+        aggregator: object with ``aggregate(updates, global_weights, context)``.
+        attack: optional attack object (Stage 6) with ``malicious_ids``,
+            ``poison_data(cid, X, y)`` and ``poison_updates(updates, malicious_mask, rng)``.
+        rounds: override ``cfg['fl']['rounds']``.
+        round_hook: called as ``round_hook(round, row)`` after every round.
+    """
+    seed = cfg["seed"]
+    torch.manual_seed(seed)
+    model = build_model(data.n_features, data.n_classes, cfg["model"])
+    global_w = get_weights(model)
+    rounds = cfg["fl"]["rounds"] if rounds is None else rounds
+    t_cfg = cfg["training"]
+    client_ids = list(range(data.n_clients))
+    malicious = set(attack.malicious_ids) if attack is not None else set()
+
+    # Data poisoning happens once, on the malicious clients' local data.
+    client_X, client_y = list(data.client_X), list(data.client_y)
+    if attack is not None:
+        for cid in malicious:
+            client_X[cid], client_y[cid] = attack.poison_data(cid, client_X[cid], client_y[cid])
+    n_samples = torch.tensor([len(y) for y in client_y], dtype=torch.float32)
+
+    history = []
+    for rnd in range(1, rounds + 1):
+        t0 = time.perf_counter()
+        updates = torch.stack([
+            client_update(model, global_w, client_X[c], client_y[c], t_cfg, data.n_classes,
+                          _client_seed(seed, rnd, c))
+            for c in client_ids])
+        t_clients = time.perf_counter() - t0
+
+        if attack is not None and malicious:
+            mask = torch.tensor([c in malicious for c in client_ids])
+            updates = attack.poison_updates(updates, mask, make_rng(seed, 6, rnd))
+
+        root_cache: dict = {}
+
+        def root_update(_w=global_w, _rnd=rnd) -> torch.Tensor:
+            if "g0" not in root_cache:
+                f = cfg["fltrust"]
+                root_cache["g0"] = client_update(
+                    model, _w, data.X_root, data.y_root, t_cfg, data.n_classes,
+                    _client_seed(seed, _rnd, 10_000), epochs=f["root_epochs"],
+                    batch_size=f["root_batch_size"])
+            return root_cache["g0"]
+
+        context = {"round": rnd, "client_ids": client_ids, "n_samples": n_samples,
+                   "root_update": root_update, "final_layer": final_layer_slice(model)}
+        t1 = time.perf_counter()
+        new_update, info = aggregator.aggregate(updates, global_w, context)
+        global_w = global_w + new_update
+        t_server = time.perf_counter() - t1
+
+        row = {"round": rnd, "time_clients_s": t_clients, "time_server_s": t_server}
+        if rnd % cfg["fl"]["eval_every"] == 0 or rnd == rounds:
+            row.update(evaluate(model, global_w, data, cfg))
+        selected = info.get("selected")
+        if selected is not None and malicious:
+            row.update(screening_rates(selected, client_ids, malicious))
+        row["info"] = info
+        history.append(row)
+        if round_hook:
+            round_hook(rnd, row)
+        if verbose and "accuracy" in row:
+            print(f"round {rnd:3d}  acc={row['accuracy']:.4f}  macroF1={row['macro_f1']:.4f}  "
+                  f"mcc={row['mcc']:.4f}  ({t_clients:.1f}s clients, {t_server:.2f}s server)")
+
+    final = {k: v for k, v in history[-1].items() if k != "info"}
+    return {"history": history, "final": final, "weights": global_w}
+
+
+def evaluate(model, weights: torch.Tensor, data: FLData, cfg: dict) -> dict:
+    """Test-set metrics of the model with ``weights`` (+ label-flip attack success rate)."""
+    set_weights(model, weights)
+    y_pred = predict(model, data.X_test, cfg["fl"]["eval_batch_size"])
+    m = detection_metrics(data.y_test, y_pred, data.class_names)
+    m["attack_success_rate"] = attack_success_rate(data.y_test, y_pred, data.benign_id)
+    return m
+
+
+def screening_rates(selected: Sequence[int], client_ids: Sequence[int], malicious: set) -> dict:
+    """Malicious-client detection TPR / FPR for one round (rejected = flagged)."""
+    selected = set(selected)
+    benign = [c for c in client_ids if c not in malicious]
+    tpr = np.mean([c not in selected for c in malicious]) if malicious else 0.0
+    fpr = np.mean([c not in selected for c in benign]) if benign else 0.0
+    return {"screen_tpr": float(tpr), "screen_fpr": float(fpr)}

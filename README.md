@@ -66,6 +66,15 @@ average; the rest is spread over the other zones, so every class exists in the
 federation. Inside a zone each class is split by Dirichlet(α). Each client gets
 a random 30–50 % Benign share. `python experiments/stage3_partition.py [--alpha 0.1]`.
 
+## FL core (Stage 4)
+
+`src/models/mlp.py` (MLP, flat-weight helpers), `src/fl/client.py` (class-weighted
+CE, SGD; returns Δ = w_local − w_global), `src/fl/server.py` (sequential rounds,
+lazy root update g₀ for FLTrust, per-round test metrics, attack hooks),
+`src/aggregators/` (common `aggregate(updates, global_weights, context) ->
+(new_update, info)` interface, FedAvg), `src/metrics/detection.py`.
+`python experiments/stage4_fedavg.py [--synthetic] [--rounds N]`.
+
 ## Running on Google Colab
 
 1. Put the data on Drive: `MyDrive/CICIoT2023/Merged01.csv … Merged63.csv`
@@ -93,3 +102,4 @@ python -m pytest
 | 1 | 2026-11-18 | CICIoT2023 pipeline: label inspection + ordered keyword mapping (raises on unmapped labels), chunked class-capped sampling (bottom-k, uniform over all files), dedup + inf handling, `.npz` Drive cache, stratified test/root/pool splits, train-only median imputation + standard scaling, shortcut-feature drop option, synthetic data generator, `experiments/stage1_data.py`, notebook cells | 42 passed (19 new); synthetic run prints class tables; ~6 s per 420k rows locally | Full 63-file scan estimated 20–30 min on Colab (once, then cached). Not yet run on real data. Duplicates are removed within the kept sample (a dropped row cannot duplicate a kept one). |
 | 2 | — | **Skipped**: N-BaIoT dropped by project decision (`nbaiot.yaml` removed, `nbaiot` no longer a valid dataset). | — | Deviation from Architecture README 5.3 / 7.3. |
 | 3 | 2026-11-18 | Zone-based Dirichlet partitioning (`src/data/partition.py`), per-client / per-zone class tables, `experiments/stage3_partition.py`; Benign cap raised to 200k (`class_cap_overrides`) | 51 passed (9 new); 20 clients, none empty, all have 30–50 % Benign, zone dominance ≈ 0.70–0.80 (mean 0.75) on synthetic | With 50k Benign the 30–50 % rule is impossible (≈290k attack rows), hence the Benign cap; if Benign is still short, attack rows are sub-sampled with a warning. Stage-1 cache must be rebuilt (new cache name). |
+| 4 | 2026-11-18 | MLP (sizes from data), client training (class-weighted CE capped at 10, SGD), sequential FL server with lazy root update + attack hooks, aggregator interface + FedAvg, metrics (accuracy, macro-F1, MCC, per-class recall, attack success rate, screening TPR/FPR), `experiments/stage4_fedavg.py` | 60 passed (9 new). Synthetic, 10 rounds: FedAvg acc 0.744 / F1 0.475 / MCC 0.679 vs majority acc 0.408 / F1 0.073 / MCC 0 | Synthetic data enlarged (≈50k rows) because tiny clients get too few SGD steps at lr 0.01. Rare synthetic classes (Web, BruteForce) are still not learned in 10 rounds; real-data behaviour to be checked on Colab. |

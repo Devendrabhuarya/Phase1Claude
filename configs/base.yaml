@@ -48,6 +48,7 @@ model:
 training:
   loss: cross_entropy
   class_weighted: true
+  class_weight_max: 10.0         # [NOT IN README] cap on balanced class weights (rare local classes)
   optimizer: sgd
   lr: 0.01
   momentum: 0.9
@@ -58,6 +59,8 @@ training:
 fl:
   rounds: 40
   participation: all_admitted    # all admitted clients every round
+  eval_every: 1                  # evaluate the global model on the test set every N rounds
+  eval_batch_size: 8192          # inference batch size (memory only, no effect on results)
 
 # ---------------------------------------------------------------- 6.2
 abac:
