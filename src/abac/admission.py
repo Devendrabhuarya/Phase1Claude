@@ -55,8 +55,11 @@ class AdmissionController:
         self.registry = AttributeRegistry()
         self.policy = AbacPolicy(a["min_firmware_version"], a["freshness_window"],
                                  a["reputation_threshold"])
-        self.reputation = ReputationManager(self.registry, r["beta"], r["threshold"],
-                                            r["quarantine_rounds"], r["probation_value"])
+        frac = r.get("max_quarantine_fraction")
+        self.reputation = ReputationManager(
+            self.registry, r["beta"], r["threshold"], r["quarantine_rounds"],
+            r["probation_value"],
+            max_quarantined=None if frac is None else int(frac * n_clients))
         self.use_reputation = use_reputation
         fw, dev = a["registered_firmware_versions"], a["device_types"]
         for cid in range(n_clients):

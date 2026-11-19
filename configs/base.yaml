@@ -127,6 +127,10 @@ reputation:
   threshold: 0.3                 # tau (same as abac.reputation_threshold)
   quarantine_rounds: 5
   probation_value: 0.3           # reset to tau after quarantine
+  # [NOT IN README] at most this fraction of clients quarantined at once (null = no cap).
+  # 0.4 = the largest attacker fraction studied. On CICIoT2023 without a cap, honest
+  # clients were quarantined in waves and 5 of 40 rounds had NO participants.
+  max_quarantine_fraction: 0.4
   # [NOT IN README] round score fed into the EMA:
   #   raw      = README 6.7: s_i = TS_i (cosine to g0) if kept by Multi-Krum, else 0
   #   relative = s_i = min(1, TS_i / median TS of selected clients), 0 if not aggregated.

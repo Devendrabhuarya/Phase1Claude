@@ -118,6 +118,28 @@ def test_reputation_ema():
     assert reg.get("a").reputation == pytest.approx(0.48)
 
 
+def test_quarantine_cap_holds_extra_clients_at_tau():
+    """With max 2 quarantined, 4 clients falling below tau: the 2 lowest are quarantined,
+    the other 2 are held at tau (still admissible) instead of emptying the round."""
+    reg = AttributeRegistry()
+    for c in "abcde":
+        reg.register(c, reputation=0.5)
+    rm = ReputationManager(reg, beta=0.8, threshold=0.3, quarantine_rounds=5,
+                           probation_value=0.3, max_quarantined=2)
+    newly = []
+    for rnd in range(1, 5):
+        newly += rm.update(rnd, {"a": 0.0, "b": 0.05, "c": 0.1, "d": 0.12, "e": 1.0})
+    assert sorted(newly) == ["a", "b"] and rm.quarantined == ["a", "b"]
+    assert reg.get("c").reputation >= 0.3 and reg.get("d").reputation >= 0.3
+    assert reg.get("e").reputation > 0.5
+
+
+def test_quarantine_cap_from_config(cfg):
+    assert AdmissionController(cfg, n_clients=20).reputation.max_quarantined == 8
+    cfg["reputation"]["max_quarantine_fraction"] = None
+    assert AdmissionController(cfg, n_clients=20).reputation.max_quarantined is None
+
+
 def test_no_feedback_without_reputation(cfg):
     adm = AdmissionController(cfg, n_clients=2, use_reputation=False)
     for r in range(1, 10):
