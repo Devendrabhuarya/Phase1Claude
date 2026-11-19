@@ -82,6 +82,19 @@ def test_unmapped_label_in_file_raises(cfg):
         _load(cfg, paths)
 
 
+def test_empty_label_rows_dropped_and_reported(cfg, files, capsys):
+    # Simulate a truncated last line: a few feature values, no label.
+    with open(files[1], "a") as fh:
+        fh.write("1.0,2.0,3.0\n")
+    s = _load(cfg, files, verbose=True)
+    out = capsys.readouterr().out
+    assert "dropped 1 row(s) with an empty" in out and files[1].name in out
+    assert not any(pd.isna(k) for k in s.raw_label_counts.index)
+    counts = inspect_labels(files, chunk_size=300)
+    assert not any(pd.isna(k) for k in counts.index)
+    assert "empty" in capsys.readouterr().out
+
+
 def test_inspect_labels_counts(files, capsys):
     counts = inspect_labels(files, chunk_size=300)
     assert counts["BenignTraffic"] >= 3 * 200          # + any injected duplicate rows

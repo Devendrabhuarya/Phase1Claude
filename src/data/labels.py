@@ -83,14 +83,20 @@ def inspect_labels(files: Sequence[Path | str], label_column: str = "Label",
         Series raw_label -> count, sorted by count (descending).
     """
     counts: dict = {}
+    empty: dict = {}                               # file name -> rows with an empty label
     for f in files:
         for chunk in pd.read_csv(f, usecols=[label_column], chunksize=chunk_size):
-            for lab, n in chunk[label_column].value_counts(dropna=False).items():
+            n_na = int(chunk[label_column].isna().sum())
+            if n_na:
+                empty[Path(f).name] = empty.get(Path(f).name, 0) + n_na
+            for lab, n in chunk[label_column].value_counts(dropna=True).items():
                 counts[lab] = counts.get(lab, 0) + int(n)
     result = pd.Series(counts, name="count", dtype="int64").sort_values(ascending=False)
     if verbose:
         print(f"{len(result)} unique raw labels in {len(files)} file(s):")
         print(result.to_string())
+        if empty:
+            print(f"WARNING: rows with an empty '{label_column}' (excluded above): {empty}")
     return result
 
 
