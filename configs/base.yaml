@@ -32,6 +32,7 @@ data:
 shortcut_check:                  # 5.1 centralized 39- vs 37-feature comparison (Stage 5)
   epochs: 10                     # [NOT IN README] centralized training epochs
   sharp_drop: 0.05               # [NOT IN README] macro-F1 drop counted as "sharp"
+  lr: 0.01                       # README 6.1 value; centralized training is noisier at the FL lr (0.05)
 
 # ---------------------------------------------------------------- 5.2
 partition:
@@ -54,7 +55,11 @@ training:
   class_weighted: true
   class_weight_max: 10.0         # [NOT IN README] cap on balanced class weights (rare local classes)
   optimizer: sgd
-  lr: 0.01
+  # README 6.1 says 0.01. Changed to 0.05 [NOT IN README] for every method: on synthetic
+  # data at 0.01 even clean FedAvg reaches only 0.74 accuracy after 10 rounds and the
+  # proposed method 0.57 (0.60 under sign_flip). At 0.05 proposed+sign_flip is 0.90 at
+  # round 10 and 0.92 at round 40 (0.1 was worse: 0.90 / F1 0.76).
+  lr: 0.05
   momentum: 0.9
   local_epochs: 2
   batch_size: 256
@@ -122,6 +127,13 @@ reputation:
   threshold: 0.3                 # tau (same as abac.reputation_threshold)
   quarantine_rounds: 5
   probation_value: 0.3           # reset to tau after quarantine
+  # [NOT IN README] round score fed into the EMA:
+  #   raw      = README 6.7: s_i = TS_i (cosine to g0) if kept by Multi-Krum, else 0
+  #   relative = s_i = min(1, TS_i / median TS of selected clients), 0 if not aggregated.
+  # raw quarantines many honest non-IID clients, but on synthetic data (lr 0.05, 40 rounds)
+  # relative was not better overall (worse F1 under label_flip/gaussian, better under alie).
+  # Kept as an option to compare on the real data.
+  score_mode: raw
 
 # ---------------------------------------------------------------- 6.8
 ledger:

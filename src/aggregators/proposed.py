@@ -74,6 +74,50 @@ def capped_weights(raw: np.ndarray, cap: float) -> np.ndarray:
     return w
 
 
+#: [NOT IN README] reputation factor for a client Multi-Krum dropped this round (relative mode)
+MK_DROPPED_FACTOR = 0.5
+
+
+def reputation_scores(raw_scores: dict, all_ts: dict, selected: list, mk_kept: set,
+                      cohort_ok: dict, mode: str = "relative") -> dict:
+    """Per-round reputation score sᵢ for every client.
+
+    Args:
+        raw_scores: README 6.7 scores (TSᵢ if kept by Multi-Krum, else 0).
+        all_ts: ReLU(cos(Δᵢ, g₀)) for every screened client, kept or not.
+        selected: clients whose update is in this round's aggregate.
+        mk_kept: clients kept by Multi-Krum.
+        cohort_ok: client -> True if its cohort was aggregated (not dropped).
+
+    * ``raw`` (README 6.7): returns ``raw_scores``.
+    * ``relative`` [NOT IN README]: sᵢ = min(1, TSᵢ / median TS of the selected
+      clients), times ``MK_DROPPED_FACTOR`` if Multi-Krum dropped the client,
+      and 0 if its cohort was dropped. Two problems with ``raw`` on non-IID data:
+      honest cosines to g₀ are small (≈0.1–0.3, so the EMA settles below
+      τ = 0.3), and Multi-Krum with f = ⌊(n−3)/2⌋ drops ~30 % of every cohort each
+      round, mostly the same unusual-but-honest clients, which then score 0.
+      Both quarantined most honest clients within 10 rounds. Under ``relative``
+      a typical honest client scores ≈ 1 (≈ 0.5 when Multi-Krum drops it), while
+      anti-aligned updates (TS = 0, e.g. sign flipping) and noise (TS ≈ 0) still
+      score ≈ 0. Multi-Krum still excludes dropped updates from the aggregate.
+    """
+    if mode == "raw":
+        return raw_scores
+    if mode != "relative":
+        raise ValueError(f"Unknown reputation.score_mode '{mode}'")
+    out = {cid: 0.0 for cid in raw_scores}
+    positive = [all_ts[cid] for cid in selected if all_ts.get(cid, 0.0) > 0]
+    if not positive:
+        return out
+    ref = float(np.median(positive))
+    for cid, ts in all_ts.items():
+        if not cohort_ok.get(cid, False):
+            continue
+        s = min(1.0, ts / ref)
+        out[cid] = s if cid in mk_kept else MK_DROPPED_FACTOR * s
+    return out
+
+
 def screen_group(updates: torch.Tensor, g0: torch.Tensor) -> dict:
     """Multi-Krum then FLTrust inside one group (cohort or all clients).
 
@@ -161,6 +205,16 @@ class Proposed(Aggregator):
             weights = {k: float(wk) for k, wk in zip(survivors, w)}
         else:
             new_update, weights = torch.zeros_like(global_weights), {}
+
+        mode = self.cfg.get("reputation", {}).get("score_mode", "raw")
+        if mode != "raw":
+            all_ts, _ = fltrust_scores(updates, g0)
+            scores = reputation_scores(
+                scores, all_ts={ids[i]: float(all_ts[i]) for i in range(n)},
+                selected=[c for k in survivors for c in cohort_members[k]],
+                mk_kept={c for members in mk_kept.values() for c in members},
+                cohort_ok={ids[i]: int(labels[i]) in cohort_updates for i in range(n)},
+                mode=mode)
 
         info.update({
             "selected": sorted(c for k in survivors for c in cohort_members[k]),

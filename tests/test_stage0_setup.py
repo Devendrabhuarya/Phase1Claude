@@ -46,7 +46,9 @@ def test_readme_hyperparameters():
     c = load_config("ciciot2023")
     assert c["model"]["hidden_sizes"] == [128, 64] and c["model"]["dropout"] == 0.2
     t = c["training"]
-    assert (t["lr"], t["momentum"], t["local_epochs"], t["batch_size"]) == (0.01, 0.9, 2, 256)
+    # lr: README says 0.01; deliberately raised to 0.05 (see base.yaml); shortcut check keeps 0.01
+    assert (t["lr"], t["momentum"], t["local_epochs"], t["batch_size"]) == (0.05, 0.9, 2, 256)
+    assert c["shortcut_check"]["lr"] == 0.01
     assert c["fl"]["rounds"] == 40
     assert c["partition"]["n_clients"] == 20
     assert c["partition"]["dirichlet_alpha"] == 0.5 and c["partition"]["dirichlet_alpha_hard"] == 0.1

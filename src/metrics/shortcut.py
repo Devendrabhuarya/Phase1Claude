@@ -28,7 +28,11 @@ def train_centralized(bundle, cfg: dict, epochs: int) -> dict:
     """Train one MLP on the whole client pool and return its test metrics."""
     torch.manual_seed(cfg["seed"])
     model = build_model(bundle.n_features, bundle.n_classes, cfg["model"])
-    train_local(model, bundle.X_pool, bundle.y_pool, cfg["training"], bundle.n_classes,
+    tcfg = dict(cfg["training"])
+    lr = cfg.get("shortcut_check", {}).get("lr")
+    if lr is not None:
+        tcfg["lr"] = lr
+    train_local(model, bundle.X_pool, bundle.y_pool, tcfg, bundle.n_classes,
                 seed=cfg["seed"], epochs=epochs)
     y_pred = predict(model, bundle.X_test, cfg["fl"]["eval_batch_size"])
     return detection_metrics(bundle.y_test, y_pred, bundle.class_names)

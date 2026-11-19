@@ -14,7 +14,7 @@ from src.abac.policy import AbacPolicy
 from src.abac.registry import AttributeRegistry, ClientAttributes, firmware_to_int
 from src.aggregators import get_aggregator
 from src.aggregators.cohorts import cosine_distance_matrix, form_cohorts, median_norm_clip
-from src.aggregators.proposed import VARIANTS, capped_weights
+from src.aggregators.proposed import VARIANTS, capped_weights, reputation_scores
 from src.attacks import attack_from_config
 from src.fl.methods import build_method
 from src.fl.pipeline import build_fl_data
@@ -206,6 +206,30 @@ def test_proposed_rejects_sign_flippers(cfg):
     assert len(info["cohort_weights"]) >= 2
     assert max(info["cohort_weights"].values()) <= 0.5 + 1e-9
     assert sum(info["cohort_weights"].values()) == pytest.approx(1.0)
+
+
+def test_relative_scores_keep_low_cosine_honest_clients():
+    """Honest non-IID clients with cosine ~0.15-0.25 to g0 must not be quarantined
+    (they were under raw scores); a TS=0 client and dropped/unselected ones score 0."""
+    # 0-2, 4 selected; 3 anti-aligned (TS 0); 5 honest but dropped by Multi-Krum;
+    # 6 in a cohort that was dropped as root-misaligned.
+    ts = {0: 0.15, 1: 0.2, 2: 0.25, 3: 0.0, 4: 0.3, 5: 0.2, 6: 0.25}
+    selected, kept = [0, 1, 2, 4], {0, 1, 2, 3, 4, 6}
+    ok = {c: c != 6 for c in ts}
+    raw = {c: (ts[c] if c in kept else 0.0) for c in ts}
+    rel = reputation_scores(raw, ts, selected, kept, ok, mode="relative")
+    assert rel[1] == pytest.approx(0.2 / 0.225) and rel[4] == 1.0
+    assert rel[5] == pytest.approx(0.5 * 0.2 / 0.225)   # Multi-Krum drop -> half score
+    assert rel[3] == rel[6] == 0.0
+    assert reputation_scores(raw, ts, selected, kept, ok, mode="raw") is raw
+
+    def ema(s, rounds=10, r=0.5):
+        for _ in range(rounds):
+            r = 0.8 * r + 0.2 * s
+        return r
+    assert ema(raw[0]) < 0.3 and ema(raw[5]) < 0.3  # raw: honest clients fall below tau
+    assert ema(rel[0]) > 0.3 and ema(rel[5]) > 0.3  # relative: they stay admitted
+    assert ema(rel[3]) < 0.3                        # attacker still pushed out
 
 
 def test_captured_cohort_is_dropped(cfg):
