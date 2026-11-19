@@ -93,6 +93,49 @@ the malicious update within the max benign pairwise distance). The server calls
 `poison_data` once and `poison_updates` every round.
 `python experiments/stage6_attacks.py [--synthetic] --rounds 10 --fraction 0.2 --placement spread`.
 
+## Robust baselines (Stage 7)
+
+`src/aggregators/robust.py`: coordinate-wise **Median**, **Trimmed Mean**
+(β per side), **Krum** / **Multi-Krum** (score = sum of squared distances to the
+n − f − 2 nearest neighbours, f = ⌊(n − 3)/2⌋, Multi-Krum averages the n − f best),
+**FLTrust** (TSᵢ = ReLU(cos(Δᵢ, g₀)), Δᵢ scaled to ‖g₀‖, trust-weighted mean).
+The helpers `krum_scores`, `multikrum_select`, `fltrust_scores` are reused by the
+proposed method. `python experiments/stage7_baselines.py --attack sign_flip`.
+
+## Proposed method (Stage 8)
+
+* `src/abac/` — attribute registry, PyCasbin ABAC policy (permit iff registered ∧
+  firmware ≥ min ∧ fresh ∧ reputation ≥ τ ∧ not quarantined) with readable deny
+  reasons, and `AdmissionController` (runs before training, injects unauthorized
+  joins: unregistered / stale firmware / expired).
+* `src/reputation/` — EMA reputation, quarantine for 5 rounds, probation at τ.
+* `src/aggregators/cohorts.py` — median-norm clipping; cohort formation
+  (final-layer cosine distance, average-linkage clustering, K ∈ {2,3} by silhouette,
+  min cohort size 6, re-clustered every round).
+* `src/aggregators/proposed.py` — per-cohort Multi-Krum + FLTrust, root-alignment
+  check, trust-proportional weights capped at 0.5 (water-filling), reputation scores;
+  ablation variants V1–V5 (`ablation.variant`).
+* `src/fl/methods.py` — `build_method(cfg, n_clients)` → (aggregator, admission).
+* `python experiments/stage8_proposed.py --synthetic --rounds 10 --attack sign_flip`.
+
+## Audit ledger (Stage 9)
+
+* `src/ledger/merkle.py` — SHA-256 helpers (`hash_tensor` hashes float32 bytes),
+  Merkle root (odd level: last node paired with itself), inclusion proofs.
+* `src/ledger/ledger.py` — `Ledger` interface (`append`, `verify`, `query`) and
+  `HashChainLedger`: one block per round with `index, round, timestamp, prev_hash,
+  abac_decisions, update_hashes, update_merkle_root, cohorts, screening, reputation,
+  global_model_hash, block_hash`; `block_hash` = SHA-256 of the canonical JSON of all
+  other fields. `verify()` recomputes every hash, Merkle root and link. Saved as JSON
+  lines; only hashes and decisions are stored (no update vectors or traffic).
+* `src/ledger/records.py` — builds a block record from the round's ABAC result,
+  updates, aggregator `info`, reputation and new weights.
+* `run_federated(..., ledger=...)` appends one block per round (time logged as
+  `ledger_append_s`, not counted in server time); the ledger does not change training.
+* `python experiments/stage9_ledger.py --synthetic --rounds 6` — run, verify, client
+  audit trail, Merkle proof, tamper test (edit only → block fails; edit + re-hash →
+  next block's `prev_hash` fails).
+
 ## Running on Google Colab
 
 1. Put the data on Drive: `MyDrive/CICIoT2023/Merged01.csv … Merged63.csv`
@@ -123,3 +166,6 @@ python -m pytest
 | 4 | 2026-11-18 | MLP (sizes from data), client training (class-weighted CE capped at 10, SGD), sequential FL server with lazy root update + attack hooks, aggregator interface + FedAvg, metrics (accuracy, macro-F1, MCC, per-class recall, attack success rate, screening TPR/FPR), `experiments/stage4_fedavg.py` | 60 passed (9 new). Synthetic, 10 rounds: FedAvg acc 0.744 / F1 0.475 / MCC 0.679 vs majority acc 0.408 / F1 0.073 / MCC 0 | Synthetic data enlarged (≈50k rows) because tiny clients get too few SGD steps at lr 0.01. Rare synthetic classes (Web, BruteForce) are still not learned in 10 rounds; real-data behaviour to be checked on Colab. |
 | 5 | 2026-11-18 | Shortcut-feature check: centralized MLP 39 vs 37 features, comparison table (accuracy, macro-F1, MCC, per-class recall, difference), decision by macro-F1 drop, `experiments/stage5_shortcut.py` | 62 passed (2 new): no false alarm when signal is spread; a planted TTL/IAT-only signal gives F1 drop 0.65 → reduced set recommended | "Sharp drop" threshold (0.05 macro-F1) and 10 centralized epochs are my choices. Real-data result pending (Colab). |
 | 6 | 2026-11-18 | Attacks (label flip, sign flip, Gaussian, scaling, ALIE, Min-Max) with data/update hooks in the server, malicious placement (spread / concentrated with overflow), `attack_from_config`, `experiments/stage6_attacks.py`, notebook cells for Stages 3–6 | 79 passed (17 new). Synthetic FedAvg, 20 % spread, 10 rounds — acc: clean 0.744, label flip 0.688 (ASR 0.07→0.20), sign flip 0.645, Gaussian 0.551, scaling 0.157, ALIE 0.734, Min-Max 0.726 | Attack strengths (sign scale 1, noise std 1, scaling ×10), Min-Max perturbation (std) and concentrated zone (A) are my choices. Adaptive attacks use this round's benign-update statistics (omniscient). |
+| 7 | 2026-11-18 | *(branch `stage-7-baselines`)* Median, Trimmed Mean, Krum, Multi-Krum, FLTrust behind the common interface + registry; reusable `krum_scores` / `multikrum_select` / `fltrust_scores`; FLTrust root update now runs as many SGD steps as an average client (`fltrust.root_steps: match_clients`); `experiments/stage7_baselines.py` | 95 passed (16 new): each rule tested on hand-made updates with a known outlier; under scaling (20 %) all robust rules beat FedAvg by > 0.2 acc. Synthetic sign flip 20 %, 10 rounds — acc: FedAvg 0.645, Median 0.600, TrMean 0.650, Krum 0.524 (FPR 0.94), Multi-Krum 0.536 (TPR 0.75, FPR 0.31), FLTrust 0.604 (TPR 1.0, FPR 0) | Under non-IID data, global Krum/Multi-Krum reject many honest clients (high FPR) — the problem the cohort design targets. Root-step matching is a deviation (README only says "train on the root dataset"). |
+| 8 | 2026-11-18 | *(branch `stage-8-proposed`)* ABAC (PyCasbin) + registry + unauthorized-join injection, reputation/quarantine loop, median-norm clipping, cohort formation, intra-cohort Multi-Krum + FLTrust, capped inter-cohort aggregation, ablation V1–V5, server admission hook (only admitted clients train), per-round ABAC/cohort-ARI logging, `experiments/stage8_proposed.py` | 116 passed (21 new). Synthetic sign flip 20 % spread, 10 rounds — FedAvg acc 0.645 / F1 0.324; V5 acc 0.647 / F1 0.474, all 4 attackers quarantined by round 3, 100 % intruders blocked. 40 %: FedAvg 0.540 / 0.208, V4 0.667 / 0.472, V5 0.547 / 0.305 | **False quarantines:** V5 quarantines 10–11 honest clients — Multi-Krum always drops f = ⌊(n−3)/2⌋ (8 of 20) updates and the README sets sᵢ = 0 for them, so honest non-IID clients dropped 2–3 times fall below τ. Cohort ARI ≈ 0 on synthetic data (zones not separable there). Needs a design decision (see report). |
+| 9 | 2026-11-18 | *(branch `stage-9-ledger`)* Merkle tree + proofs, `HashChainLedger` (`append`/`verify`/`query`, JSONL save/load), round-record builder, ledger hook in the server loop, `experiments/stage9_ledger.py` | 143 passed (27 new). Tamper test: editing any field of a past block → `verify()` fails at that block; editing + re-hashing → fails at the next block (`prev_hash`). Synthetic V5 run: ~1 ms append per block, <1 ms verify for 6 blocks | Blocks also store the per-client `update_hashes` (leaves of the Merkle root) so a client's update can be audited and the root re-checked. Reputation rule left as in the README (false-quarantine question still open). |

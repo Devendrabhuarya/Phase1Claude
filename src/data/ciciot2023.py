@@ -97,6 +97,7 @@ def load_class_capped(
     kept = {c: None for c in class_names}          # class -> DataFrame (features + key)
     raw_counts: dict = {}
     seen = dict.fromkeys(class_names, 0)
+    missing_label_rows: dict = {}                  # file name -> rows dropped (empty label)
 
     for i, path in enumerate(files):
         cols = _read_columns(path)
@@ -106,6 +107,15 @@ def load_class_capped(
         reader = pd.read_csv(path, chunksize=chunk_size)
         for chunk in reader:
             chunk.columns = [c.strip() for c in chunk.columns]
+            # Rows with an empty label (e.g. a truncated last line) cannot be
+            # classified; drop them explicitly and report how many.
+            no_label = chunk[label_column].isna()
+            if no_label.any():
+                n_bad = int(no_label.sum())
+                missing_label_rows[path.name] = missing_label_rows.get(path.name, 0) + n_bad
+                chunk = chunk[~no_label]
+                if chunk.empty:
+                    continue
             labels = chunk[label_column]
             for lab, n in labels.value_counts(dropna=False).items():
                 raw_counts[lab] = raw_counts.get(lab, 0) + int(n)
@@ -131,6 +141,13 @@ def load_class_capped(
         if verbose:
             sizes = {c: (0 if kept[c] is None else len(kept[c])) for c in class_names}
             print(f"[{i + 1}/{len(files)}] {path.name}: kept per class {sizes}")
+            if path.name in missing_label_rows:
+                print(f"    WARNING: dropped {missing_label_rows[path.name]} row(s) with an "
+                      f"empty '{label_column}' in {path.name} (truncated/corrupt line?)")
+
+    if missing_label_rows and verbose:
+        print(f"Rows dropped for empty label, total {sum(missing_label_rows.values())}: "
+              f"{missing_label_rows}")
 
     X_parts, y_parts = [], []
     for cls in class_names:

@@ -74,6 +74,12 @@ abac:
   reputation_threshold: 0.3      # tau
   n_unauthorized_clients: 4      # [NOT IN README] injected per round in experiments
   unauthorized_types: [unregistered, stale_firmware, expired]
+  inject_unauthorized: true      # inject unauthorized join attempts (proposed method only)
+  # --- simulated attribute registry [NOT IN README] ---
+  registered_firmware_versions: ["2.0.0", "2.1.0", "2.3.1"]   # legit clients (cycled)
+  stale_firmware_version: "1.4.0"
+  device_types: [camera, thermostat, gateway, smart_plug, door_lock]
+  unauthorized_update_std: 1.0   # noise update an intruder would send if admitted
 
 # ---------------------------------------------------------------- 6.3
 clipping:
@@ -96,7 +102,11 @@ multikrum:
   f_formula: floor_n_minus_3_over_2
 
 fltrust:
-  root_epochs: 2                 # same local training settings as clients
+  # [NOT IN README] g0 uses the same number of SGD steps as an average client per round
+  # (as in the FLTrust paper, where server and clients run the same local iterations).
+  # With only ~500 root rows, "2 epochs" would be ~2 steps and g0 (which sets the norm
+  # of every normalised update) would be far too small to learn anything.
+  root_steps: match_clients      # match_clients | <int>
   root_batch_size: 256
 
 # ---------------------------------------------------------------- 6.6
@@ -137,7 +147,7 @@ attacks:
 aggregator:
   name: fedavg                   # fedavg | median | trimmed_mean | krum | multikrum | fltrust | proposed
   trimmed_mean_beta: 0.1         # [NOT IN README] fraction trimmed from each side
-  krum_f: null                   # null = derived from malicious_fraction
+  krum_f: null                   # null = floor((n - 3) / 2), same rule as 6.5 (no knowledge of the true attacker count)
 
 ablation:
   variant: V5                    # V1..V5 (7.2); only used when aggregator == proposed
